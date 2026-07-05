@@ -1,0 +1,51 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# Web (Next.js) — Vercel builds these on deploy
+web/node_modules/
+web/.next/
+web/.turbo/
+web/tsconfig.tsbuildinfo
+web/out/
+
+# Agent (Python) — LiveKit Build installs deps on deploy
+agent/.venv/
+agent/**/__pycache__/
+agent/.pytest_cache/
+agent/**/*.egg-info/
+agent/**/.mypy_cache/
+agent/**/.ruff_cache/
+
+# Python bytecode (anywhere)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / coverage
+coverage/
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Logs & temp
+*.log
+tmp/
+temp/
+.build-logs/
+
+# Local assignment notes (optional — keep locally, don't push)
+plan.txt
+task.md
