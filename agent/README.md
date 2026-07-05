@@ -36,10 +36,82 @@ Shortcut:
 cd agent && chmod +x dev.sh && ./dev.sh dev
 ```
 
-## Deploy
+## Deploy (LiveKit Cloud)
 
-Deploy this folder to **LiveKit Build**. Set env vars from `.env.example` in the
-LiveKit agent dashboard.
+The agent is a **LiveKit worker**, not a REST API. Host it on **LiveKit Cloud** (assignment stack), not Vercel/Railway.
+
+### 1. Install LiveKit CLI
+
+```bash
+brew install livekit-cli
+# or: curl -sSL https://get.livekit.io/cli | bash
+lk cloud auth
+```
+
+### 2. Create the cloud agent (from `agent/`)
+
+```bash
+cd agent
+lk agent create
+```
+
+This links the folder to your LiveKit project and creates `livekit.toml`. Commit that file and push to GitHub.
+
+### 3. Set secrets (copy from local `agent/.env`)
+
+```bash
+lk agent secrets set --from-file .env
+```
+
+Or set in [cloud.livekit.io](https://cloud.livekit.io) → **Agents** → your agent → **Secrets**.
+
+**Required:**
+
+| Secret | Notes |
+|--------|--------|
+| `LIVEKIT_URL` | Same as Vercel web |
+| `LIVEKIT_API_KEY` | Same as Vercel web |
+| `LIVEKIT_API_SECRET` | Same as Vercel web |
+| `DATABASE_URL` | Neon Postgres |
+| `DEEPGRAM_API_KEY` | STT |
+| `SARVAM_API_KEY` | STT + Telugu TTS |
+| `ELEVEN_API_KEY` | TTS EN/HI |
+| `GEMINI_API_KEY` | LLM (required in cloud) |
+| `LLM_PROVIDER` | Use **`gemini`** or **`auto`** (Ollama is not available in cloud) |
+| `GEMINI_MODEL` | e.g. `gemini-2.0-flash-001` |
+| `ELEVEN_TTS_MODEL` | `eleven_flash_v2_5` |
+| `ELEVEN_VOICE_ID` | premade voice ID |
+| `ELEVEN_VOICE_ID_EN` / `ELEVEN_VOICE_ID_HI` | same premade voice |
+| `SARVAM_TTS_MODEL` | `bulbul:v2` |
+| `SARVAM_TTS_SPEAKER` | `anushka` |
+| `CLINIC_TIMEZONE` | `Asia/Kolkata` |
+
+### 4. Deploy
+
+```bash
+cd agent
+lk agent deploy
+```
+
+Or connect GitHub in LiveKit dashboard and deploy from the `agent/` directory.
+
+### 5. Database
+
+Run once against Neon (from your laptop):
+
+```bash
+cd agent && .venv/bin/python scripts/init_db.py
+```
+
+### Full stack after deploy
+
+| Piece | Host |
+|-------|------|
+| Web UI + token API | Vercel (`web/`) |
+| Voice agent | **LiveKit Cloud** (`agent/`) |
+| Database | Neon |
+
+Both web and agent must use the **same** `LIVEKIT_URL` / API key / secret.
 
 ## Test
 
