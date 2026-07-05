@@ -41,7 +41,8 @@ export async function POST(request: Request) {
   }
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  const maxCalls = Number(process.env.MAX_CALLS_PER_IP_PER_HOUR ?? 10);
+  const defaultMax = process.env.NODE_ENV === 'development' ? 100 : 10;
+  const maxCalls = Number(process.env.MAX_CALLS_PER_IP_PER_HOUR ?? defaultMax);
   if (!checkRateLimit(ip, maxCalls)) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }

@@ -5,7 +5,7 @@ import logging
 from collections.abc import AsyncIterable
 from typing import Any
 
-from livekit.agents._exceptions import APIStatusError
+from livekit.agents._exceptions import APIConnectionError, APIStatusError
 from livekit.agents.llm import LLM, ChatChunk, LLMStream
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
 from livekit.agents.utils import is_given
@@ -14,16 +14,36 @@ from livekit.agents.llm.tool_context import Tool, ToolChoice
 logger = logging.getLogger("aarogya-agent")
 
 
+_RATE_LIMIT_TOKENS = (
+    "429",
+    "rate limit",
+    "quota exceeded",
+    "too many requests",
+    "resource exhausted",
+)
+
+
 def is_rate_limited(exc: BaseException) -> bool:
     """True when the cloud LLM hit quota / rate limits and a local fallback is reasonable."""
-    if isinstance(exc, APIStatusError):
-        if exc.status_code in (429, 503):
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, APIStatusError):
+            if current.status_code in (429, 503):
+                return True
+            body = str(current.body or current.message).lower()
+            if any(token in body for token in _RATE_LIMIT_TOKENS):
+                return True
+        if isinstance(current, APIConnectionError):
+            msg = str(current).lower()
+            if any(token in msg for token in _RATE_LIMIT_TOKENS):
+                return True
+        msg = str(current).lower()
+        if any(token in msg for token in _RATE_LIMIT_TOKENS):
             return True
-        body = str(exc.body or exc.message).lower()
-        if any(token in body for token in ("rate limit", "quota", "resource exhausted", "too many requests")):
-            return True
-    msg = str(exc).lower()
-    return "429" in msg or "rate limit" in msg or "quota exceeded" in msg
+        current = current.__cause__ or current.__context__
+    return False
 
 
 class RateLimitFallbackLLM(LLM):

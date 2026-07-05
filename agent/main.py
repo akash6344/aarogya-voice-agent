@@ -1,6 +1,6 @@
 """Aarogya voice medical-appointment agent (LiveKit Agents).
 
-Voice loop: LiveKit audio -> VAD -> STT (user-selected) -> Gemini LLM + clinic tools
+Voice loop: LiveKit audio -> VAD -> STT (user-selected) -> LLM + clinic tools
 -> per-language TTS -> playback -> continue listening, with turn detection, noise
 cancellation, and barge-in.
 """
@@ -98,18 +98,21 @@ class ClinicAgent(Agent):
 
     @function_tool()
     async def list_specialties(self, context: RunContext) -> str:
-        """List the medical specialties available at the clinic."""
+        """List all medical specialties at the clinic. Call when the patient does not know
+        which department they need, or asks what services are available."""
         specialties = await self.db.list_specialties()
         if not specialties:
             return self._missing()
         names = [s.name for s in specialties]
-        return f"We offer these specialties: {', '.join(names)}."
+        return f"Available specialties: {', '.join(names)}."
 
     @function_tool()
     async def find_doctors(
         self, context: RunContext, specialty: str = "", doctor_name: str = ""
     ) -> str:
-        """Find doctors by specialty and/or name. Returns names, specialties, and languages."""
+        """Find doctors by specialty and/or name. ALWAYS call when a specialty is mentioned
+        or the patient asks who is available. Read the returned doctor name(s) aloud and
+        ask which doctor they prefer before checking availability."""
         query_specialty = normalize_specialty_query(specialty) if specialty else ""
         doctors = await self.db.find_doctors(
             specialty=query_specialty or None, name=doctor_name or None
@@ -124,24 +127,31 @@ class ClinicAgent(Agent):
                     f"Available specialties: {names}."
                 )
             return self._missing()
-        return "; ".join(
-            f"{d.name} — {d.specialty}"
-            + (f" ({d.qualifications})" if d.qualifications else "")
-            + (f", speaks {', '.join(d.languages)}" if d.languages else "")
-            for d in doctors
-        )
+        if len(doctors) == 1:
+            d = doctors[0]
+            qual = f", {d.qualifications}" if d.qualifications else ""
+            langs = f". Speaks {', '.join(d.languages)}" if d.languages else ""
+            return f"For {d.specialty} we have {d.name}{qual}{langs}."
+        parts = []
+        for d in doctors:
+            qual = f" ({d.qualifications})" if d.qualifications else ""
+            langs = f", speaks {', '.join(d.languages)}" if d.languages else ""
+            parts.append(f"{d.name} — {d.specialty}{qual}{langs}")
+        return f"Doctors: {'; '.join(parts)}."
 
     @function_tool()
     async def check_availability(
         self, context: RunContext, on_date: str, doctor_name: str = "", specialty: str = ""
     ) -> str:
-        """Check open appointment slots on a date (YYYY-MM-DD) for a doctor or specialty."""
+        """Check open appointment slots on a date (YYYY-MM-DD). Call ONLY after the patient
+        has chosen a doctor and date. Prefer passing doctor_name. Read times aloud and ask
+        which slot they want."""
         try:
             target = parse_date(on_date)
         except ValueError:
             return "Please tell me the date again, for example the 5th of July."
         if not (doctor_name or specialty):
-            return "Which doctor or which specialty would you like to check?"
+            return "Need a doctor or specialty before checking slots."
 
         query_specialty = normalize_specialty_query(specialty) if specialty else ""
         doctors = await self.db.find_doctors(
@@ -154,14 +164,15 @@ class ClinicAgent(Agent):
                 return f"No matching doctor. Available specialties: {names}."
             return self._missing()
 
+        if len(doctors) > 1 and not doctor_name:
+            names = ", ".join(d.name for d in doctors)
+            return f"Multiple doctors: {names}."
+
         if target.weekday() == 6:
-            return (
-                f"The clinic is closed on Sundays. "
-                f"Please pick a weekday to check {doctors[0].name}'s availability."
-            )
+            return f"The clinic is closed on Sundays."
 
         lines: list[str] = []
-        for doctor in doctors[:3]:
+        for doctor in doctors[:1]:
             slots = await self.db.available_slots(
                 doctor=doctor,
                 on_date=target,

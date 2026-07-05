@@ -13,12 +13,12 @@ import openai
 from livekit.agents import llm as llm_base
 from livekit.agents import stt as stt_base
 from livekit.agents import tts as tts_base
-from livekit.plugins import deepgram, elevenlabs, google, openai as openai_plugin, sarvam
+from livekit.plugins import deepgram, elevenlabs, google, mistralai, openai as openai_plugin, sarvam
 
 from clinic.llm_fallback import RateLimitFallbackLLM
 
 STT_PROVIDERS = ("deepgram", "sarvam", "elevenlabs")
-LLM_PROVIDERS = ("auto", "gemini", "ollama")
+LLM_PROVIDERS = ("auto", "gemini", "mistral", "ollama")
 
 # app language -> provider-specific language codes
 _DEEPGRAM_LANG = {"en": "en-US", "hi": "hi", "te": "multi"}
@@ -83,6 +83,14 @@ def _build_gemini_llm() -> llm_base.LLM:
     )
 
 
+def _build_mistral_llm() -> llm_base.LLM:
+    return mistralai.LLM(
+        model=os.environ.get("MISTRAL_MODEL", "mistral-small-latest"),
+        api_key=os.environ["MISTRAL_API_KEY"],
+        temperature=0.2,
+    )
+
+
 def _build_ollama_llm() -> llm_base.LLM:
     base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     timeout_s = float(os.environ.get("OLLAMA_TIMEOUT", "90"))
@@ -101,18 +109,18 @@ def _build_ollama_llm() -> llm_base.LLM:
 
 
 def build_llm() -> llm_base.LLM:
-    """LLM routing: auto (Gemini + Ollama on rate limit), gemini-only, or ollama-only."""
+    """LLM routing: auto (Gemini + Ollama on rate limit), gemini, mistral, or ollama."""
     provider = os.environ.get("LLM_PROVIDER", "auto").lower()
     ollama = _build_ollama_llm()
 
     if provider == "ollama":
         return ollama
 
-    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if provider == "gemini":
-        return _build_gemini_llm()
+    if provider == "mistral":
+        return _build_mistral_llm()
 
-    if provider == "auto" and gemini_key:
+    gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if provider in ("gemini", "auto") and gemini_key:
         return RateLimitFallbackLLM(primary=_build_gemini_llm(), fallback=ollama)
 
     # auto without Gemini key, or unknown provider
@@ -124,8 +132,9 @@ def llm_mode_label() -> str:
     provider = os.environ.get("LLM_PROVIDER", "auto").lower()
     if provider == "ollama":
         return "ollama"
-    if provider == "gemini":
-        return "gemini"
-    if provider == "auto" and os.environ.get("GEMINI_API_KEY", "").strip():
-        return "auto (gemini→ollama on rate limit)"
+    if provider == "mistral":
+        model = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+        return f"mistral ({model})"
+    if provider in ("gemini", "auto") and os.environ.get("GEMINI_API_KEY", "").strip():
+        return f"{provider} (gemini→ollama on rate limit)"
     return "ollama (no GEMINI_API_KEY)"

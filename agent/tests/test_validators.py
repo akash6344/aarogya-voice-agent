@@ -43,14 +43,31 @@ def test_parse_time_variants(value: str):
 
 
 def test_is_rate_limited_detects_quota_errors():
-    from livekit.agents import APIStatusError
+    from livekit.agents import APIConnectionError, APIStatusError
 
     from clinic.llm_fallback import is_rate_limited
 
     assert is_rate_limited(APIStatusError("quota", status_code=429))
     assert is_rate_limited(APIStatusError("busy", status_code=503))
+    assert is_rate_limited(APIConnectionError("Too Many Requests", retryable=True))
+    err = APIConnectionError("failed after 4 attempts", retryable=True)
+    err.__cause__ = APIStatusError("Too Many Requests", status_code=429)
+    assert is_rate_limited(err)
+    assert is_rate_limited(RuntimeError("Too Many Requests"))
     assert not is_rate_limited(APIStatusError("bad request", status_code=400))
     assert not is_rate_limited(RuntimeError("network down"))
+
+
+def test_build_llm_gemini_uses_fallback(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.0-flash-001")
+
+    from clinic.llm_fallback import RateLimitFallbackLLM
+    from clinic.providers import build_llm
+
+    llm = build_llm()
+    assert isinstance(llm, RateLimitFallbackLLM)
 
 
 def test_build_llm_auto_with_gemini_key(monkeypatch):
@@ -63,3 +80,15 @@ def test_build_llm_auto_with_gemini_key(monkeypatch):
 
     llm = build_llm()
     assert isinstance(llm, RateLimitFallbackLLM)
+
+
+def test_build_llm_mistral(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "mistral")
+    monkeypatch.setenv("MISTRAL_API_KEY", "test-key")
+    monkeypatch.setenv("MISTRAL_MODEL", "mistral-small-latest")
+
+    from livekit.plugins import mistralai
+    from clinic.providers import build_llm
+
+    llm = build_llm()
+    assert isinstance(llm, mistralai.LLM)
